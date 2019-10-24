@@ -15,78 +15,82 @@
  */
 package org.magnum.dataup;
 
+import java.io.IOException;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import org.magnum.dataup.model.Video;
+import org.magnum.dataup.model.VideoStatus;
+import org.magnum.dataup.model.VideoStatus.VideoState;
+import org.springframework.data.rest.webmvc.ResourceNotFoundException;
 import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
-import com.google.common.net.MediaType;
-import retrofit.client.Response;
-import retrofit.mime.TypedFile;
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicLong;
-import org.magnum.dataup.model.*;
-import org.magnum.dataup.model.VideoStatus.VideoState;
+import org.springframework.web.multipart.MultipartFile;
 
 @Controller
 public class VideoController {
 
-  /**
-   * You will need to create one or more Spring controllers to fulfill the requirements of the
-   * assignment. If you use this file, please rename it to something other than "AnEmptyController"
-   * 
-   * 
-   * ________ ________ ________ ________ ___ ___ ___ ________ ___ __ |\ ____\|\ __ \|\ __ \|\ ___ \
-   * |\ \ |\ \|\ \|\ ____\|\ \|\ \ \ \ \___|\ \ \|\ \ \ \|\ \ \ \_|\ \ \ \ \ \ \ \\\ \ \ \___|\ \ \/
-   * /|_ \ \ \ __\ \ \\\ \ \ \\\ \ \ \ \\ \ \ \ \ \ \ \\\ \ \ \ \ \ ___ \ \ \ \|\ \ \ \\\ \ \ \\\ \
-   * \ \_\\ \ \ \ \____\ \ \\\ \ \ \____\ \ \\ \ \ \ \_______\ \_______\ \_______\ \_______\ \
-   * \_______\ \_______\ \_______\ \__\\ \__\ \|_______|\|_______|\|_______|\|_______|
-   * \|_______|\|_______|\|_______|\|__| \|__|
-   * 
-   * 
-   */
+  public static final String VIDEO_SVC_PATH = "/video";
+  public static final String VIDEO_DATA_PATH = VIDEO_SVC_PATH + "/{id}/data";
+  private static final AtomicLong currentId = new AtomicLong(0L);
 
+  // An in-memory list that the servlet uses to store the
+  // videos that are sent to it by clients
+  private VideoFileManager videoData;
   private Map<Long, Video> videos = new HashMap<Long, Video>();
 
-
-  @RequestMapping(method = RequestMethod.GET, value = "/video")
+  @RequestMapping(value = VIDEO_SVC_PATH, method = RequestMethod.GET)
   public @ResponseBody Collection<Video> getVideoList() {
-    Collection<Video> videoList = new ArrayList<Video>(videos.values());
-    return videoList;
+    return videos.values();
   }
 
-  @RequestMapping(method = RequestMethod.POST, value = "/video")
-  public @ResponseBody Video addVideo(@RequestBody Video v) {
-    AtomicLong id = new AtomicLong(1L);
-    long videoID = id.longValue();
-    Video video = Video.create().withContentType("video/mpeg").withDuration(v.getDuration())
-        .withSubject(v.getSubject()).withTitle(v.getTitle()).build();
-    video.setId(videoID);
+  @RequestMapping(value = VIDEO_DATA_PATH, method = RequestMethod.GET)
+  public void getData(@PathVariable("id") long id, HttpServletResponse response)
+      throws IOException {
 
-    video.setDataUrl("a");
+    if (videoData == null)
+      videoData = VideoFileManager.get();
+    try {
+      videoData.copyVideoData(videos.get(id), response.getOutputStream());
+    } catch (Exception e) {
+      throw new ResourceNotFoundException();
+    }
+  }
 
-    videos.put(videoID, video);
+  @RequestMapping(value = VIDEO_SVC_PATH, method = RequestMethod.POST)
+  public @ResponseBody Video addVideoMetadata(@RequestBody Video v, HttpServletRequest request)
+      throws IOException {
+    v.setId(currentId.incrementAndGet());
+    v.setDataUrl(getUrlBaseForLocalServer(request) + "/" + VIDEO_SVC_PATH + v.getId() + "/data");
+    videos.put(v.getId(), v);
     return v;
   }
 
-  @RequestMapping(method = RequestMethod.POST, value = "/video/{id}/data")
-  public VideoStatus setVideoData(long id, TypedFile videoData) throws IOException {
-    VideoFileManager fm = VideoFileManager.get();
-    fm.saveVideoData(videos.get(id), videoData.in());
-    VideoStatus status = new VideoStatus(VideoState.READY);
-    return status;
+  @RequestMapping(value = VIDEO_DATA_PATH, method = RequestMethod.POST)
+  public @ResponseBody VideoStatus addVideoData(@PathVariable("id") long id,
+      @RequestParam MultipartFile data) throws IOException {
+    if (videoData == null)
+      videoData = VideoFileManager.get();
+    try {
+      videoData.saveVideoData(videos.get(id), data.getInputStream());
+    } catch (Exception e) {
+      throw new ResourceNotFoundException();
+    }
+    return new VideoStatus(VideoState.READY);
   }
 
-  @RequestMapping(method = RequestMethod.GET, value = "/video/{id}/data")
-  public Response getData(long id) {
-    VideoFileManager fm = VideoFileManager.get();
-    Response r = videos.get(id).getDataUrl().in();
-    return null;
+  private String getUrlBaseForLocalServer(HttpServletRequest request) {
+    String base = "http://" + request.getServerName()
+        + ((request.getServerPort() != 80) ? ":" + request.getServerPort() : "");
+    return base;
   }
+
 }
