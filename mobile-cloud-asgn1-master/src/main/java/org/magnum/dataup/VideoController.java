@@ -42,9 +42,6 @@ public class VideoController {
   public static final String VIDEO_DATA_PATH = VIDEO_SVC_PATH + "/{id}/data";
   private static final AtomicLong currentId = new AtomicLong(0L);
 
-  // An in-memory list that the servlet uses to store the
-  // videos that are sent to it by clients
-  private VideoFileManager videoData;
   private Map<Long, Video> videos = new HashMap<Long, Video>();
 
   @RequestMapping(value = VIDEO_SVC_PATH, method = RequestMethod.GET)
@@ -55,9 +52,8 @@ public class VideoController {
   @RequestMapping(value = VIDEO_DATA_PATH, method = RequestMethod.GET)
   public void getData(@PathVariable("id") long id, HttpServletResponse response)
       throws IOException {
+    VideoFileManager videoData = VideoFileManager.get();
 
-    if (videoData == null)
-      videoData = VideoFileManager.get();
     try {
       videoData.copyVideoData(videos.get(id), response.getOutputStream());
     } catch (Exception e) {
@@ -77,8 +73,7 @@ public class VideoController {
   @RequestMapping(value = VIDEO_DATA_PATH, method = RequestMethod.POST)
   public @ResponseBody VideoStatus addVideoData(@PathVariable("id") long id,
       @RequestParam MultipartFile data) throws IOException {
-    if (videoData == null)
-      videoData = VideoFileManager.get();
+    VideoFileManager videoData = VideoFileManager.get();
     try {
       videoData.saveVideoData(videos.get(id), data.getInputStream());
     } catch (Exception e) {
@@ -88,9 +83,9 @@ public class VideoController {
   }
 
   private String getUrlBaseForLocalServer(HttpServletRequest request) {
-    String base = "http://" + request.getServerName()
+    String baseURL = "http://" + request.getServerName()
         + ((request.getServerPort() != 80) ? ":" + request.getServerPort() : "");
-    return base;
+    return baseURL;
   }
 
 }
